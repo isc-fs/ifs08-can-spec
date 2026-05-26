@@ -7,7 +7,7 @@ name: Release
 # cloning the spec repo:
 #
 #   curl -L -o ifs08_can_ids.h \
-#     https://github.com/isc-fs/ifs08-can-spec/releases/download/v1.5.0/ifs08_can_ids.h
+#     https://github.com/isc-fs/IFS08-DBCinator/releases/download/v1.5.0/ifs08_can_ids.h
 #
 # Per-ECU firmware repos that submodule this repo simply bump the
 # submodule SHA in their own PRs -- no release artifact dance needed

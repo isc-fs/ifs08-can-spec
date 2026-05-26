@@ -1,6 +1,6 @@
-# ifs08-can-spec
+# IFS08-DBCinator
 
-Source of truth for the IFS08 CAN wire contract across **AMS**, **VCU**, and **UDV**.
+Source of truth for the IFS08 CAN wire contract across **AMS**, **VCU**, and **UDV**. Single repo, one Python spec per ECU, generates DBCs + a C header for the firmware repos.
 
 The Python files under [`spec/`](spec/) define every CAN message the team's ECUs emit or consume on FDCAN1 (and the boot trigger on FDCAN2). The generators under [`tools/`](tools/) emit:
 
@@ -20,7 +20,7 @@ Pulling the spec into its own repo gives:
 
 - **One commit history per wire-contract change.** Renaming a signal is a tiny PR whose diff every consumer can read in 30 seconds.
 - **Cross-ECU collision detection at PR time.** `tools/check_ids.py` catches "two ECUs claim sender on the same ID" and "two messages disagree on DLC" — failures that previously only surfaced on the bus.
-- **Pinned releases.** A pit-tool deployment targets `ifs08-can-spec v1.5.0`; the AMS firmware that flashed today also targets `v1.5.0`. Mismatch is impossible by construction.
+- **Pinned releases.** A pit-tool deployment targets `IFS08-DBCinator v1.5.0`; the AMS firmware that flashed today also targets `v1.5.0`. Mismatch is impossible by construction.
 
 ## Repo layout
 
@@ -82,7 +82,7 @@ The byte-order conventions for `BE` and `LE` helpers in `spec/common.py` match V
 Recommended pattern: **git submodule**.
 
 ```sh
-git submodule add https://github.com/isc-fs/ifs08-can-spec.git can-spec
+git submodule add https://github.com/isc-fs/IFS08-DBCinator.git can-spec
 ```
 
 Then in CMake:
