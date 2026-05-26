@@ -1,0 +1,114 @@
+name: Release
+
+# Triggered when a semver-like tag (v*) is pushed.
+#
+# Each release publishes the generated artifacts so external consumers
+# (pit tool, data logger, dashboard) can pull a pinned version without
+# cloning the spec repo:
+#
+#   curl -L -o ifs08_can_ids.h \
+#     https://github.com/isc-fs/ifs08-can-spec/releases/download/v1.5.0/ifs08_can_ids.h
+#
+# Per-ECU firmware repos that submodule this repo simply bump the
+# submodule SHA in their own PRs -- no release artifact dance needed
+# on their side.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)publish'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.name }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install cantools
+        run: pip install cantools
+
+      - name: Regenerate artifacts
+        run: |
+          python3 -m tools.gen_dbc
+          python3 -m tools.gen_c_header
+
+      - name: Audit (cannot publish a tag that fails the bus contract)
+        run: |
+          python3 -m tools.check_ids
+          for f in dist/*.dbc; do
+            python3 -c "
+import cantools; cantools.database.load_file('$f')
+print('parse OK: $f')"
+          done
+
+      - name: Generate per-release changelog
+        id: changelog
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          {
+            echo "# IFS08 CAN spec \`${TAG}\`"
+            echo
+            if [ -n "$PREV" ]; then
+              echo "## Source-of-truth changes since \`$PREV\`"
+              echo
+              git log --pretty=format:'- %s (%h)' "${PREV}..${TAG}" -- spec/ \
+                | grep -vE '^\- Merge (pull request|branch)' | head -100
+              echo
+              echo
+              echo "## Generated artifacts"
+            fi
+            echo
+            echo "Drop any of these into a consumer (pit tool, logger, firmware):"
+            echo "- \`ams.dbc\`       — AMS-only DBC (72 messages)"
+            echo "- \`vcu.dbc\`       — VCU-only DBC"
+            echo "- \`udv.dbc\`       — UDV-only DBC"
+            echo "- \`combined.dbc\`  — every frame on the bus, one file"
+            echo "- \`ifs08_can_ids.h\` — C header with frame IDs / DLCs / enum values"
+            if [ -n "$PREV" ]; then
+              echo
+              echo "**Full changelog:** https://github.com/${{ github.repository }}/compare/${PREV}...${TAG}"
+            fi
+          } > release-notes.md
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release delete "$TAG" --repo "${{ github.repository }}" --yes
+          fi
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            dist/ams.dbc dist/vcu.dbc dist/udv.dbc dist/combined.dbc \
+            dist/ifs08_can_ids.h

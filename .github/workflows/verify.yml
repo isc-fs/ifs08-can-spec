@@ -1,0 +1,45 @@
+name: Verify
+
+# Single CI job that gates every PR into main: regenerate the
+# artifacts in-memory and diff against the committed dist/, parse
+# each DBC with cantools, and run the cross-ECU collision audit.
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install cantools
+        run: pip install cantools
+
+      - name: Cross-ECU collision audit
+        run: python3 -m tools.check_ids
+
+      - name: dist/*.dbc match the generator
+        run: python3 -m tools.gen_dbc --check
+
+      - name: dist/ifs08_can_ids.h matches the generator
+        run: python3 -m tools.gen_c_header --check
+
+      - name: Parse each DBC with cantools
+        run: |
+          for f in dist/*.dbc; do
+            echo "::group::$f"
+            python3 -c "
+import cantools, sys
+db = cantools.database.load_file('$f')
+print(f'{len(db.messages)} messages, {sum(len(m.signals) for m in db.messages)} signals')
+"
+            echo "::endgroup::"
+          done
