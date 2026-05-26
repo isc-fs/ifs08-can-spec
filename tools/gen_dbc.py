@@ -2,16 +2,19 @@
 # SPDX-License-Identifier: proprietary
 """Generate Vector DBC files for each ECU + a combined DBC.
 
+dist/ is NOT committed -- consumers run this generator at build time
+(firmware CMake configure step) or pull the artifacts from a tagged
+release (external tools that want a pinned URL).
+
 Usage:
   python3 -m tools.gen_dbc                          # write dist/*.dbc
-  python3 -m tools.gen_dbc --check                  # CI: fail on drift
-  python3 -m tools.gen_dbc --stdout --ecu ams       # print one ECU
+  python3 -m tools.gen_dbc --stdout --ecu ams       # print one ECU to stdout
+  python3 -m tools.gen_dbc --out path/              # custom output dir
 """
 
 from __future__ import annotations
 
 import argparse
-import difflib
 import pathlib
 import sys
 from typing import Iterable, List, Optional
@@ -112,62 +115,18 @@ def emit_dbc(messages: List[Message]) -> str:
 
 # --- CLI -------------------------------------------------------------------
 
-def _dist_path(ecu: str) -> pathlib.Path:
-    repo = pathlib.Path(__file__).resolve().parents[1]
-    return repo / "dist" / f"{ecu}.dbc"
-
-
-def cmd_write(ecus: Iterable[str]) -> int:
-    for ecu in ecus:
-        out = emit_dbc(ECU_SPECS[ecu])
-        path = _dist_path(ecu)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(out)
-        print(f"wrote {path}  ({len(out.splitlines())} lines, "
-              f"{len(ECU_SPECS[ecu])} messages)")
-    return 0
-
-
-def cmd_check(ecus: Iterable[str]) -> int:
-    failed = []
-    for ecu in ecus:
-        fresh = emit_dbc(ECU_SPECS[ecu])
-        path = _dist_path(ecu)
-        if not path.exists():
-            print(f"error: {path} missing -- run gen_dbc without --check first",
-                  file=sys.stderr)
-            failed.append(ecu)
-            continue
-        committed = path.read_text()
-        if committed == fresh:
-            print(f"OK -- {path} matches generator "
-                  f"({len(fresh.splitlines())} lines)")
-            continue
-        failed.append(ecu)
-        print(f"error: {path} drifted from generator", file=sys.stderr)
-        diff = difflib.unified_diff(
-            committed.splitlines(keepends=True),
-            fresh.splitlines(keepends=True),
-            fromfile=f"{path} (committed)",
-            tofile=f"{path} (generator output)",
-            n=3,
-        )
-        sys.stderr.write("".join(diff))
-    if failed:
-        print(f"\nRegenerate with: python3 -m tools.gen_dbc",
-              file=sys.stderr)
-        return 1
-    return 0
+def _default_out_dir() -> pathlib.Path:
+    return pathlib.Path(__file__).resolve().parents[1] / "dist"
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--check", action="store_true",
-                    help="verify committed dist/*.dbc match the generator")
     ap.add_argument("--stdout", action="store_true",
                     help="print one ECU's DBC to stdout (requires --ecu)")
     ap.add_argument("--ecu", choices=list(ECU_SPECS),
                     help="restrict to a single ECU (default: all)")
+    ap.add_argument("--out", type=pathlib.Path, default=_default_out_dir(),
+                    help="output directory (default: <repo>/dist/)")
     args = ap.parse_args(argv)
 
     ecus = [args.ecu] if args.ecu else list(ECU_SPECS)
@@ -178,7 +137,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         sys.stdout.write(emit_dbc(ECU_SPECS[ecus[0]]))
         return 0
 
-    return cmd_check(ecus) if args.check else cmd_write(ecus)
+    args.out.mkdir(parents=True, exist_ok=True)
+    for ecu in ecus:
+        out = emit_dbc(ECU_SPECS[ecu])
+        path = args.out / f"{ecu}.dbc"
+        path.write_text(out)
+        print(f"wrote {path}  ({len(out.splitlines())} lines, "
+              f"{len(ECU_SPECS[ecu])} messages)")
+    return 0
 
 
 if __name__ == "__main__":

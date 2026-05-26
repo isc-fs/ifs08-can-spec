@@ -350,6 +350,42 @@ def pit_post_mortem_6c5() -> Message:
     )
 
 
+def pit_pec_per_ic_a_6c7() -> Message:
+    """Per-IC PEC error count for the first 8 LTC6811s in the chain
+    (modules 0..3, both ICs each). Saturating u8 per IC -- a sustained
+    spike on byte N == "chain index N is misbehaving"."""
+    return Message(
+        0x6C7, "PitDiag_pec_per_ic_a", 8, "AMS",
+        comment=("Per-IC PEC error count, ICs 0..7. Each byte is a "
+                 "saturating u8 capped at 0xFF. Decode: byte i = "
+                 "g_ltc_pec_err_count[i] saturated. Modules: ic 0,1 = "
+                 "module 0; ic 2,3 = module 1; ic 4,5 = module 2; "
+                 "ic 6,7 = module 3."),
+        signals=[
+            Signal(f"pec_err_ic_{i}", LE(i, 8), unit="count",
+                   comment=f"Chain IC {i} (module {i // 2}, "
+                           f"{'upper' if i % 2 == 0 else 'lower'} LTC6811)")
+            for i in range(8)
+        ],
+    )
+
+
+def pit_pec_per_ic_b_6c8() -> Message:
+    """Per-IC PEC error count for the last 2 LTC6811s (module 4) plus
+    reserved bytes."""
+    return Message(
+        0x6C8, "PitDiag_pec_per_ic_b", 8, "AMS",
+        comment=("Per-IC PEC error count, ICs 8..9 + 6 reserved bytes. "
+                 "Same encoding as 0x6C7."),
+        signals=[
+            Signal("pec_err_ic_8", LE(0, 8), unit="count",
+                   comment="Chain IC 8 (module 4, upper LTC6811)"),
+            Signal("pec_err_ic_9", LE(1, 8), unit="count",
+                   comment="Chain IC 9 (module 4, lower LTC6811)"),
+        ],
+    )
+
+
 def pit_fw_id_6c6() -> Message:
     return Message(
         0x6C6, "PitDiag_fw_id", 8, "AMS",
@@ -398,4 +434,6 @@ MESSAGES = [
     pit_boot_diag_6c4(),
     pit_post_mortem_6c5(),
     pit_fw_id_6c6(),
+    pit_pec_per_ic_a_6c7(),
+    pit_pec_per_ic_b_6c8(),
 ]

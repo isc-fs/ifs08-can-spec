@@ -4,15 +4,16 @@
 include to share frame IDs / DLCs / enum values without redefining
 them locally (and drifting from this single source of truth).
 
+dist/ is NOT committed -- firmware CMake runs this at configure time.
+
 Usage:
   python3 -m tools.gen_c_header           # write dist/ifs08_can_ids.h
-  python3 -m tools.gen_c_header --check   # CI: fail on drift
+  python3 -m tools.gen_c_header --out <dir>
 """
 
 from __future__ import annotations
 
 import argparse
-import difflib
 import pathlib
 import sys
 from typing import List, Optional
@@ -106,45 +107,21 @@ def emit_header() -> str:
 
 # --- CLI -------------------------------------------------------------------
 
-def _out_path() -> pathlib.Path:
-    repo = pathlib.Path(__file__).resolve().parents[1]
-    return repo / "dist" / "ifs08_can_ids.h"
+def _default_out_dir() -> pathlib.Path:
+    return pathlib.Path(__file__).resolve().parents[1] / "dist"
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--check", action="store_true",
-                    help="verify the committed header matches the generator")
+    ap.add_argument("--out", type=pathlib.Path, default=_default_out_dir(),
+                    help="output directory (default: <repo>/dist/)")
     args = ap.parse_args(argv)
 
-    fresh = emit_header()
-    path = _out_path()
-
-    if not args.check:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(fresh)
-        print(f"wrote {path}  ({len(fresh.splitlines())} lines)")
-        return 0
-
-    if not path.exists():
-        print(f"error: {path} missing -- run gen_c_header without --check first",
-              file=sys.stderr)
-        return 2
-    committed = path.read_text()
-    if committed == fresh:
-        print(f"OK -- {path} matches generator")
-        return 0
-    print(f"error: {path} drifted from generator", file=sys.stderr)
-    diff = difflib.unified_diff(
-        committed.splitlines(keepends=True),
-        fresh.splitlines(keepends=True),
-        fromfile=f"{path} (committed)",
-        tofile=f"{path} (generator output)",
-        n=3,
-    )
-    sys.stderr.write("".join(diff))
-    print(f"\nRegenerate with: python3 -m tools.gen_c_header", file=sys.stderr)
-    return 1
+    args.out.mkdir(parents=True, exist_ok=True)
+    path = args.out / "ifs08_can_ids.h"
+    path.write_text(emit_header())
+    print(f"wrote {path}")
+    return 0
 
 
 if __name__ == "__main__":

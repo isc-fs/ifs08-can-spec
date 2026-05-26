@@ -4,11 +4,13 @@ Source of truth for the IFS08 CAN wire contract across **AMS**, **VCU**, and **U
 
 The Python files under [`spec/`](spec/) define every CAN message the team's ECUs emit or consume on FDCAN1 (and the boot trigger on FDCAN2). The generators under [`tools/`](tools/) emit:
 
-- [`dist/ams.dbc`](dist/ams.dbc) / [`dist/vcu.dbc`](dist/vcu.dbc) / [`dist/udv.dbc`](dist/udv.dbc) — Vector DBC, one per ECU
-- [`dist/combined.dbc`](dist/combined.dbc) — every frame on the bus, single file
-- [`dist/ifs08_can_ids.h`](dist/ifs08_can_ids.h) — C header `#include`d by every firmware repo so they share frame IDs / DLCs / enum values
+- `dist/ams.dbc` / `dist/vcu.dbc` / `dist/udv.dbc` — Vector DBC, one per ECU
+- `dist/combined.dbc` — every frame on the bus, single file
+- `dist/ifs08_can_ids.h` — C header `#include`d by every firmware repo so they share frame IDs / DLCs / enum values
 
-Every PR into `main` runs the verifier (`tools/check_ids.py` + a DBC-drift check + a cantools parse). Every `v*` tag publishes `dist/*` as release artifacts.
+**`dist/` is not committed.** Consumers generate it at build time (firmware CMake configure step) or fetch it from a tagged release (external tools that want a pinned URL). The Python `spec/` modules are the only source of truth in this repo.
+
+Every PR into `main` runs the verifier (`tools/check_ids.py` cross-ECU collision audit + a cantools parse of every emitted DBC + a `gcc -fsyntax-only` smoke compile of the C header). Every `v*` tag regenerates and publishes `dist/*` as release artifacts.
 
 ## Why a separate repo
 
@@ -43,19 +45,25 @@ dist/                 generated artifacts (committed for curl-able access)
 └── ifs08_can_ids.h
 ```
 
-## Regenerate
+## Generate (every consumer does this)
 
 ```sh
-python3 -m tools.gen_dbc          # writes dist/{ams,vcu,udv,combined}.dbc
-python3 -m tools.gen_c_header     # writes dist/ifs08_can_ids.h
-python3 -m tools.check_ids        # cross-ECU audit
+python3 -m tools.gen_dbc                  # writes dist/{ams,vcu,udv,combined}.dbc
+python3 -m tools.gen_c_header             # writes dist/ifs08_can_ids.h
+python3 -m tools.check_ids                # cross-ECU audit
 ```
 
-Each tool also has a `--check` mode that the CI uses to verify the committed artifacts haven't drifted from the source:
+Or to write to an explicit output dir (firmware CMake configure step does this):
 
 ```sh
-python3 -m tools.gen_dbc --check
-python3 -m tools.gen_c_header --check
+python3 -m tools.gen_dbc      --out build/can-spec
+python3 -m tools.gen_c_header --out build/can-spec
+```
+
+For stdout-only (no file IO):
+
+```sh
+python3 -m tools.gen_dbc --stdout --ecu ams > /tmp/ams.dbc
 ```
 
 ## Editing the spec
@@ -63,9 +71,9 @@ python3 -m tools.gen_c_header --check
 To add or change a CAN frame:
 
 1. Edit the relevant `spec/<ecu>.py`. The dataclasses in `spec/common.py` are typed; mypy / your IDE will catch most mistakes.
-2. Run the generators (`python3 -m tools.gen_dbc && python3 -m tools.gen_c_header`).
-3. Run the audit (`python3 -m tools.check_ids`).
-4. Commit `spec/*.py` and the updated `dist/*` in the same PR. CI re-runs both as a guardrail.
+2. Run the audit (`python3 -m tools.check_ids`).
+3. Optional: regenerate locally to inspect the DBC (`python3 -m tools.gen_dbc`) — but don't commit it.
+4. Open a PR. CI regenerates in-memory, parses with cantools, smoke-compiles the C header, runs the audit. Downstream firmware repos pick up the change next time they bump the submodule SHA.
 
 The byte-order conventions for `BE` and `LE` helpers in `spec/common.py` match Vector DBC's Motorola/Intel bit numbering — see the docstring there for the arithmetic.
 

@@ -1,8 +1,9 @@
 name: Verify
 
-# Single CI job that gates every PR into main: regenerate the
-# artifacts in-memory and diff against the committed dist/, parse
-# each DBC with cantools, and run the cross-ECU collision audit.
+# Source-of-truth = spec/*.py.  dist/ is not committed -- consumers
+# generate at build time. CI's job is: confirm the spec compiles to
+# valid DBCs and a parseable C header, and that no cross-ECU
+# collisions slipped in.
 
 on:
   push:
@@ -26,14 +27,22 @@ jobs:
       - name: Cross-ECU collision audit
         run: python3 -m tools.check_ids
 
-      - name: dist/*.dbc match the generator
-        run: python3 -m tools.gen_dbc --check
-
-      - name: dist/ifs08_can_ids.h matches the generator
-        run: python3 -m tools.gen_c_header --check
+      - name: Generate artifacts into a scratch dir
+        run: |
+          python3 -m tools.gen_dbc      --out /tmp/dist
+          python3 -m tools.gen_c_header --out /tmp/dist
+          ls -la /tmp/dist
 
       - name: Parse each DBC with cantools
         run: |
-          for f in dist/*.dbc; do
+          for f in /tmp/dist/*.dbc; do
             python3 -c "import sys, cantools; db = cantools.database.load_file(sys.argv[1]); print(f'{sys.argv[1]}: {len(db.messages)} messages, {sum(len(m.signals) for m in db.messages)} signals')" "$f"
           done
+
+      - name: C header smoke-compile (gcc -fsyntax-only)
+        run: |
+          cat > /tmp/header_smoke.c <<'EOF'
+          #include "ifs08_can_ids.h"
+          int main(void) { return 0; }
+          EOF
+          gcc -I/tmp/dist -fsyntax-only /tmp/header_smoke.c
